@@ -1,0 +1,27 @@
+{
+  "salon": {
+    "name": "Demo Salon (Fictional)",
+    "address": "100 Example Street, Example City",
+    "timeZone": "America/Los_Angeles",
+    "phone": "+1-555-0100",
+    "openingHours": {
+      "monday": [{ "open": "09:00", "close": "17:00" }],
+      "tuesday": [{ "open": "09:00", "close": "17:00" }],
+      "wednesday": [{ "open": "09:00", "close": "17:00" }],
+      "thursday": [{ "open": "09:00", "close": "19:00" }],
+      "friday": [{ "open": "09:00", "close": "19:00" }],
+      "saturday": [{ "open": "10:00", "close": "16:00" }],
+      "sunday": []
+    },
+    "bookingHorizonDays": 60,
+    "slotIncrementMinutes": 15,
+    "services": [
+      {"id": "cut_and_style", "name": "Cut and style", "durationMinutes": 60, "price": 55, "currency": "USD"},
+      {"id": "color_consultation", "name": "Color consultation", "durationMinutes": 30, "price": 25, "currency": "USD"},
+      {"id": "blowout", "name": "Blowout", "durationMinutes": 45, "price": 40, "currency": "USD"}
+    ],
+    "cancellationPolicy": "Please contact the salon at least 24 hours before your appointment to change or cancel. This is sample demo copy."
+  },
+  "calendar": {"calendarId": "REPLACE_WITH_DEDICATED_TEST_CALENDAR_ID"},
+  "handover": {"instruction": "I can't safely complete that booking right now. Please call the salon at +1-555-0100 and a team member will help."}
+}

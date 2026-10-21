@@ -1,0 +1,16 @@
+{
+  "name": "salon-receptionist",
+  "nodes": [
+    {"parameters": {"path": "salon-booking", "responseMode": "responseNode", "options": {}},
+     "name": "Webhook", "type": "n8n-nodes-base.webhook", "typeVersion": 2, "position": [240, 300]},
+    {"parameters": {"method": "POST", "url": "http://host.docker.internal:8000/bookings/check",
+      "sendBody": true, "specifyBody": "json", "jsonBody": "={{ $json }}", "options": {}},
+     "name": "Booking policy check", "type": "n8n-nodes-base.httpRequest", "typeVersion": 4.2, "position": [460, 300]},
+    {"parameters": {}, "name": "Respond to Webhook",
+     "type": "n8n-nodes-base.respondToWebhook", "typeVersion": 1, "position": [680, 300]}
+  ],
+  "connections": {
+    "Webhook": {"main": [[{"node": "Booking policy check", "type": "main", "index": 0}]]},
+    "Booking policy check": {"main": [[{"node": "Respond to Webhook", "type": "main", "index": 0}]]}
+}
+}
