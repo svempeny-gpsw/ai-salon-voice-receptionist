@@ -5,3 +5,5 @@
 __pycache__/
 frontend/dist/
 frontend/node_modules/
+.DS_Store
+n8n/.DS_Store
