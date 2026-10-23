@@ -1,0 +1,39 @@
+{
+  "type": "function",
+  "function": {
+    "name": "book_appointment",
+    "description": "Book confirmed salon appointment. Only call after explicit caller confirmation of exact service and time. customerPhone: E.164 only, e.g. +15555550123. Strip spaces/dashes/dots/parens, add +1 for 10-digit US. Never send \"+155 555 50123\".",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "service": {
+          "type": "string",
+          "description": "Service ID from salon policy, e.g. cut_and_style, color_consultation, blowout.",
+          "enum": ["cut_and_style", "color_consultation", "blowout"]
+        },
+        "startDateTime": {
+          "type": "string",
+          "description": "Confirmed local start, ISO-8601 with explicit UTC offset, e.g. 2026-10-26T10:00:00-07:00."
+        },
+        "timeZone": {
+          "type": "string",
+          "description": "IANA time zone for interpretation, must be America/Los_Angeles for this demo salon."
+        },
+        "customerName": {
+          "type": "string",
+          "description": "Caller full name, min 2 chars, e.g. Jamie Example."
+        },
+        "customerPhone": {
+          "type": "string",
+          "description": "Caller phone in E.164 only, e.g. +15555550123. Strip spaces/dashes/dots/parens, add +1 for 10-digit US numbers. Never send formatted numbers like +155 555 50123."
+        }
+      },
+      "required": ["service", "startDateTime", "timeZone", "customerName", "customerPhone"],
+      "additionalProperties": false
+    }
+  },
+  "server": {
+    "url": "REPLACE_WITH_PRODUCTION_WEBHOOK_URL",
+    "credentialId": "REPLACE_WITH_VAPI_CREDENTIAL_ID"
+  }
+}

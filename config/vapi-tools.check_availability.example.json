@@ -1,0 +1,31 @@
+{
+  "type": "function",
+  "function": {
+    "name": "check_availability",
+    "description": "Check salon availability for one service and local start time. Does not book. Time fields use ISO-8601 with explicit UTC offset plus IANA timeZone.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "service": {
+          "type": "string",
+          "description": "Service ID from salon policy, e.g. cut_and_style, color_consultation, blowout.",
+          "enum": ["cut_and_style", "color_consultation", "blowout"]
+        },
+        "startDateTime": {
+          "type": "string",
+          "description": "Requested local start, ISO-8601 with explicit UTC offset, e.g. 2026-10-26T10:00:00-07:00."
+        },
+        "timeZone": {
+          "type": "string",
+          "description": "IANA time zone for interpretation, e.g. America/Los_Angeles."
+        }
+      },
+      "required": ["service", "startDateTime", "timeZone"],
+      "additionalProperties": false
+    }
+  },
+  "server": {
+    "url": "REPLACE_WITH_PRODUCTION_WEBHOOK_URL",
+    "credentialId": "REPLACE_WITH_VAPI_CREDENTIAL_ID"
+  }
+}

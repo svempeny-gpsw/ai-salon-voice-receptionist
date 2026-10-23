@@ -3,69 +3,171 @@
   "nodes": [
     {
       "parameters": {
+        "httpMethod": "POST",
         "path": "salon-booking",
         "responseMode": "responseNode",
-        "options": {},
-        "httpMethod": "POST"
+        "authentication": "headerAuth",
+        "options": {}
       },
+      "id": "b1c2d3e4-1111-4a11-9a11-111111111111",
       "name": "Webhook",
       "type": "n8n-nodes-base.webhook",
-      "typeVersion": 2,
-      "position": [
-        240,
-        300
-      ]
+      "typeVersion": 2.2,
+      "position": [240, 300],
+      "disabled": false
     },
     {
       "parameters": {
-        "method": "POST",
-        "url": "http://host.docker.internal:8000/bookings/check",
-        "sendBody": true,
-        "specifyBody": "json",
-        "jsonBody": "{{ JSON.stringify($json.body) }}",
-        "options": {}
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Validate booking - validates per specs/booking-contract.md. Outputs one item per toolCall with valid flag and computed endDateTime. Calendar check happens in next node; final envelope built in Build Vapi response.\nconst SALON_TZ = \"America/Los_Angeles\";\nconst SERVICES = { cut_and_style: 60, color_consultation: 30, blowout: 45 };\nconst OPENING_HOURS = { monday: [{ open: \"09:00\", close: \"17:00\" }], tuesday: [{ open: \"09:00\", close: \"17:00\" }], wednesday: [{ open: \"09:00\", close: \"17:00\" }], thursday: [{ open: \"09:00\", close: \"19:00\" }], friday: [{ open: \"09:00\", close: \"19:00\" }], saturday: [{ open: \"10:00\", close: \"16:00\" }], sunday: [] };\nconst HORIZON_DAYS = 60;\nfunction isValidTZ(tz) { try { Intl.DateTimeFormat(undefined, { timeZone: tz }); return true; } catch (e) { return false; } }\nfunction toMin(t) { const [h, m] = t.split(\":\").map(Number); return h * 60 + m; }\nfunction pad(n) { return String(n).padStart(2, \"0\"); }\nfunction wallParts(ms) { const fmt = new Intl.DateTimeFormat(\"en-US\", { timeZone: SALON_TZ, weekday: \"long\", hour: \"2-digit\", minute: \"2-digit\", hour12: false }); const p = Object.fromEntries(fmt.formatToParts(new Date(ms)).map(x => [x.type, x.value])); return { weekday: (p.weekday || \"\").toLowerCase(), minutes: (parseInt(p.hour, 10) % 24) * 60 + parseInt(p.minute, 10) }; }\nfunction formatEnd(startInput, durMin) { const m = startInput.match(/([+-]\\d{2}:\\d{2}|Z)$/); const suffix = m ? m[1] : \"-07:00\"; let off = 0; if (suffix !== \"Z\") { const s = suffix[0] === \"+\" ? 1 : -1; const [h, mi] = suffix.slice(1).split(\":\").map(Number); off = s * (h * 60 + mi); } const endMs = Date.parse(startInput) + durMin * 60000; const w = new Date(endMs + off * 60000); return `${w.getUTCFullYear()}-${pad(w.getUTCMonth() + 1)}-${pad(w.getUTCDate())}T${pad(w.getUTCHours())}:${pad(w.getUTCMinutes())}:${pad(w.getUTCSeconds())}` + suffix; }\nconst first = $input.all()[0]?.json ?? {};\nconst body = first.body ?? first;\nlet toolCalls = body?.message?.toolCalls ?? body?.toolCalls ?? [];\nif (!Array.isArray(toolCalls) || toolCalls.length === 0) { if (body?.function?.name || body?.service) { toolCalls = [{ id: body?.toolCallId || \"test-call-1\", function: { name: body?.function?.name || \"check_availability\", arguments: body?.function?.arguments ?? body } }]; } }\nif (!Array.isArray(toolCalls) || toolCalls.length === 0) { return [{ json: { toolCallId: \"unknown\", fnName: \"unknown\", valid: false, errorMessage: \"No tool calls found.\" } }]; }\nconst out = [];\nfor (const tc of toolCalls) {\n  const toolCallId = tc?.id || tc?.toolCallId || \"unknown\";\n  const fnName = tc?.function?.name || tc?.functionName || tc?.name || \"\";\n  let args = tc?.function?.arguments ?? tc?.arguments ?? {};\n  if (typeof args === \"string\") { try { args = JSON.parse(args); } catch (e) { args = {}; } }\n  const base = { toolCallId, fnName, service: args.service, startDateTime: args.startDateTime, timeZone: args.timeZone, customerName: args.customerName, customerPhone: args.customerPhone };\n  if (fnName !== \"check_availability\" && fnName !== \"book_appointment\") { out.push({ json: { ...base, valid: false, errorMessage: `Unknown function '${fnName}'.` } }); continue; }\n  if (!args.service || !SERVICES[args.service]) { out.push({ json: { ...base, valid: false, errorMessage: `Unknown service '${args.service}'. Available: cut_and_style, color_consultation, blowout.` } }); continue; }\n  if (typeof args.startDateTime !== \"string\" || !/^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}(:\\d{2})?([+-]\\d{2}:\\d{2}|Z)$/.test(args.startDateTime)) { out.push({ json: { ...base, valid: false, errorMessage: \"startDateTime must be ISO-8601 with explicit UTC offset, e.g. 2026-10-22T14:00:00-07:00.\" } }); continue; }\n  if (typeof args.timeZone !== \"string\" || !isValidTZ(args.timeZone)) { out.push({ json: { ...base, valid: false, errorMessage: \"timeZone must be a valid IANA name, e.g. America/Los_Angeles.\" } }); continue; }\n  if (args.timeZone !== SALON_TZ) { out.push({ json: { ...base, valid: false, errorMessage: `timeZone must be ${SALON_TZ} for this demo salon.` } }); continue; }\n  const startMs = Date.parse(args.startDateTime);\n  if (Number.isNaN(startMs)) { out.push({ json: { ...base, valid: false, errorMessage: \"Unresolvable startDateTime.\" } }); continue; }\n  if (startMs <= Date.now()) { out.push({ json: { ...base, valid: false, errorMessage: \"Requested time is in the past.\" } }); continue; }\n  if (startMs - Date.now() > HORIZON_DAYS * 86400000) { out.push({ json: { ...base, valid: false, errorMessage: `Requested time is beyond the ${HORIZON_DAYS}-day booking horizon.` } }); continue; }\n  const dur = SERVICES[args.service];\n  const endDateTime = formatEnd(args.startDateTime, dur);\n  const endMs = startMs + dur * 60000;\n  const sW = wallParts(startMs); const eW = wallParts(endMs - 1);\n  const dayH = OPENING_HOURS[sW.weekday] || [];\n  const inside = (w) => dayH.some(r => w.minutes >= toMin(r.open) && w.minutes < toMin(r.close));\n  if (sW.weekday !== eW.weekday || !inside(sW) || !inside(eW)) { out.push({ json: { ...base, endDateTime, valid: false, errorMessage: \"Salon is closed at the requested time.\" } }); continue; }\n  if (fnName === \"book_appointment\") {\n    if (typeof args.customerName !== \"string\" || args.customerName.trim().length < 2) { out.push({ json: { ...base, endDateTime, valid: false, errorMessage: \"customerName is required.\" } }); continue; }\n    if (typeof args.customerPhone !== \"string\" || !/^\\+[1-9]\\d{7,14}$/.test(args.customerPhone)) { out.push({ json: { ...base, endDateTime, valid: false, errorMessage: \"customerPhone must be E.164, e.g. +15555550123.\" } }); continue; }\n  }\n  out.push({ json: { ...base, endDateTime, valid: true } });\n}\nreturn out;"
       },
-      "name": "Booking policy check",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
-      "position": [
-        460,
-        300
-      ]
+      "id": "b1c2d3e4-2222-4a22-9a22-222222222222",
+      "name": "Validate booking",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 300]
     },
     {
-      "parameters": {},
+      "parameters": {
+        "method": "GET",
+        "url": "https://www.googleapis.com/calendar/v3/calendars/REPLACE_WITH_TEST_CALENDAR_ID/events",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googleCalendarOAuth2Api",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            { "name": "timeMin", "value": "={{ $json.startDateTime }}" },
+            { "name": "timeMax", "value": "={{ $json.endDateTime }}" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "c3d4e5f6-3333-4b33-9b33-333333333333",
+      "name": "Google Raw Check",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [680, 300],
+      "onError": "continueErrorOutput",
+      "alwaysOutputData": true,
+      "credentials": {},
+      "notes": "Verified working: raw events.list with timeMin/timeMax returns 200 where the bundled Google Calendar node (n8n 2.44.4) 400s on any filtered query. Replace REPLACE_WITH_TEST_CALENDAR_ID with the full calendar id (hash + @group.calendar.google.com). Authentication = Predefined Credential Type > Google Calendar OAuth2 API > your Google Calendar account. Settings: Always Output Data ON, On Error = Continue (using Error Output)."
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Check Calendar - normalizes the raw events.list response from Google Raw Check into one item per event (a single {} item when the slot is free).\nconst raw = $input.first().json || {};\nconst events = Array.isArray(raw.items) ? raw.items : [];\nif (events.length === 0) return [{ json: {} }];\nreturn events.map(ev => ({ json: ev }));"
+      },
+      "id": "c3d4e5f6-3333-4b33-9b33-333333333334",
+      "name": "Check Calendar",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [760, 300],
+      "notes": "Normalizes Google Raw Check output so Build Vapi response keeps reading events under the 'Check Calendar' name (ev.id/summary/start conflict detection unchanged)."
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
+          "conditions": [
+            {
+              "id": "cond-valid-only",
+              "leftValue": "={{ $('Validate booking').first().json.valid }}",
+              "rightValue": true,
+              "operator": { "type": "boolean", "operation": "true" }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "a1b2c3d4-7777-4a77-9a77-777777777777",
+      "name": "Is Valid",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [560, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
+          "conditions": [
+            {
+              "id": "cond-book",
+              "leftValue": "={{ $('Validate booking').first().json.fnName }}",
+              "rightValue": "book_appointment",
+              "operator": { "type": "string", "operation": "equals" }
+            },
+            {
+              "id": "cond-valid",
+              "leftValue": "={{ $('Validate booking').first().json.valid }}",
+              "rightValue": true,
+              "operator": { "type": "boolean", "operation": "true" }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "e5f6a7b8-5555-4d55-9d55-555555555555",
+      "name": "Route Booking",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [880, 300]
+    },
+    {
+      "parameters": {
+        "resource": "event",
+        "operation": "create",
+        "calendar": { "__rl": true, "mode": "list", "value": "REPLACE_WITH_TEST_CALENDAR_ID" },
+        "summary": "={{ $('Validate booking').first().json.service }} - {{ $('Validate booking').first().json.customerName }}",
+        "description": "=Service: {{ $('Validate booking').first().json.service }}\nPhone: {{ $('Validate booking').first().json.customerPhone }}\nToolCall: {{ $('Validate booking').first().json.toolCallId }}\nDemo salon test booking",
+        "start": "={{ $('Validate booking').first().json.startDateTime }}",
+        "end": "={{ $('Validate booking').first().json.endDateTime }}",
+        "options": {}
+      },
+      "id": "f6a7b8c9-6666-4e66-9e66-666666666666",
+      "name": "Create Booking",
+      "type": "n8n-nodes-base.googleCalendar",
+      "typeVersion": 1.2,
+      "position": [880, 520],
+      "credentials": {},
+      "notes": "Select same OAuth + test calendar. Only runs for valid book_appointment with no conflict (conflict rechecked in Build; Create runs then Build verifies id)."
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Build Vapi response - final. Handles check_availability via Check Calendar overlap, and book_appointment via Create Booking result. Returns {results:[{toolCallId, result:\"<JSON string>\"}]}.\nconst validateItems = $('Validate booking').all().map(i => i.json);\nlet calendarItems = [];\ntry { calendarItems = $('Check Calendar').all().map(i => i.json); } catch (e) { calendarItems = []; }\nconst hasConflict = calendarItems.some(ev => ev && (ev.id || ev.summary || ev.start || ev.htmlLink));\nlet created = null;\ntry { const c = $('Create an event').first().json; if (c && (c.id || c.iCalUID)) created = c; } catch (e) { try { const c2 = $('Create Booking').first().json; if (c2 && (c2.id || c2.iCalUID)) created = c2; } catch (e2) { created = null; } }\nconst results = [];\nfor (const v of validateItems) {\n  const fail = (msg) => (v.fnName === \"book_appointment\"\n    ? { toolCallId: v.toolCallId, result: JSON.stringify({ booked: false, reason: \"invalid_request\", message: msg }) }\n    : { toolCallId: v.toolCallId, result: JSON.stringify({ available: false, reason: \"invalid_request\", message: msg }) });\n  if (!v.valid) { results.push(fail(v.errorMessage || \"Invalid request.\")); continue; }\n  if (v.fnName === \"check_availability\") {\n    if (hasConflict) { results.push({ toolCallId: v.toolCallId, result: JSON.stringify({ available: false, reason: \"slot_unavailable\", alternatives: [v.endDateTime] }) }); }\n    else { results.push({ toolCallId: v.toolCallId, result: JSON.stringify({ available: true, service: v.service, startDateTime: v.startDateTime, endDateTime: v.endDateTime, timeZone: v.timeZone }) }); }\n    continue;\n  }\n  if (v.fnName === \"book_appointment\") {\n    if (hasConflict) { results.push({ toolCallId: v.toolCallId, result: JSON.stringify({ booked: false, reason: \"slot_unavailable\", message: \"Requested time is no longer available.\" }) }); continue; }\n    if (created && (created.id || created.iCalUID)) {\n      results.push({ toolCallId: v.toolCallId, result: JSON.stringify({ booked: true, bookingReference: created.id || created.iCalUID, service: v.service, startDateTime: v.startDateTime, endDateTime: v.endDateTime, timeZone: v.timeZone }) });\n    } else {\n      results.push({ toolCallId: v.toolCallId, error: \"Calendar booking is temporarily unavailable.\" });\n    }\n    continue;\n  }\n  results.push({ toolCallId: v.toolCallId, error: \"Calendar booking is temporarily unavailable.\" });\n}\nif (results.length === 0) return [{ json: { results: [{ toolCallId: \"unknown\", error: \"Calendar booking is temporarily unavailable.\" }] } }];\nreturn [{ json: { results } }];"
+      },
+      "id": "d4e5f6a7-4444-4c44-9c44-444444444444",
+      "name": "Build Vapi response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1100, 300]
+    },
+    {
+      "parameters": { "respondWith": "firstIncomingItem" },
+      "id": "b1c2d3e4-3333-4a33-9a33-333333333333",
       "name": "Respond to Webhook",
       "type": "n8n-nodes-base.respondToWebhook",
-      "typeVersion": 1,
-      "position": [
-        680,
-        300
-      ]
+      "typeVersion": 1.5,
+      "position": [1300, 300],
+      "disabled": false
     }
   ],
   "connections": {
-    "Webhook": {
+    "Webhook": { "main": [[{ "node": "Validate booking", "type": "main", "index": 0 }]] },
+    "Validate booking": { "main": [[{ "node": "Is Valid", "type": "main", "index": 0 }]] },
+    "Is Valid": { "main": [[{ "node": "Google Raw Check", "type": "main", "index": 0 }], [{ "node": "Build Vapi response", "type": "main", "index": 0 }]] },
+    "Google Raw Check": { "main": [[{ "node": "Check Calendar", "type": "main", "index": 0 }], [{ "node": "Build Vapi response", "type": "main", "index": 0 }]] },
+    "Check Calendar": { "main": [[{ "node": "Route Booking", "type": "main", "index": 0 }]] },
+    "Route Booking": {
       "main": [
-        [
-          {
-            "node": "Booking policy check",
-            "type": "main",
-            "index": 0
-          }
-        ]
+        [{ "node": "Create Booking", "type": "main", "index": 0 }],
+        [{ "node": "Build Vapi response", "type": "main", "index": 0 }]
       ]
     },
-    "Booking policy check": {
-      "main": [
-        [
-          {
-            "node": "Respond to Webhook",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    }
-  }
+    "Create Booking": { "main": [[{ "node": "Build Vapi response", "type": "main", "index": 0 }]] },
+    "Build Vapi response": { "main": [[{ "node": "Respond to Webhook", "type": "main", "index": 0 }]] }
+  },
+  "settings": { "executionOrder": "v1", "timezone": "America/Los_Angeles" }
 }
