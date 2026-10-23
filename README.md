@@ -12,6 +12,16 @@ A working AI phone receptionist for a demo salon: a **Vapi** voice assistant ans
 
 Related project: [ai-complaint-orchestrator](https://github.com/svempeny-gpsw/ai-complaint-orchestrator) — same engineering approach (deterministic validation before actions, idempotency, failure isolation, secret-free exports) applied to a complaint-routing system.
 
+## Demo
+
+**The Vapi tool definition** for `book_appointment` — locked schema, enum-constrained service, E.164 phone rules, all driven by the booking contract:
+
+![Vapi book_appointment function tool configuration — schema-locked parameters with enum service IDs and E.164 phone normalization rules](docs/images/vapi-book-appointment-tool.png)
+
+**A successful live booking execution** in n8n — the full chain (Webhook → Validate booking → Google Raw Check → Route Booking → Create Booking → Build Vapi response → Respond to Webhook) ran in 1.4s for a real voice call:
+
+![n8n execution trace of the salon-receptionist workflow succeeding end to end for a real Vapi call](docs/images/n8n-booking-execution.png)
+
 ## Architecture
 
 ```mermaid
