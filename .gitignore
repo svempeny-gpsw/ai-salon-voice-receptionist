@@ -1,9 +1,7 @@
-*.pyc
+.DS_Store
 .env
-.pytest_cache/
 .venv/
 __pycache__/
-frontend/dist/
-frontend/node_modules/
-.DS_Store
-n8n/.DS_Store
+*.pyc
+.pytest_cache/
+node_modules/

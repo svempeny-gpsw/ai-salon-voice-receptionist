@@ -38,15 +38,12 @@ specs/booking-contract.md        # trust boundaries, schemas, result semantics, 
 n8n/workflows/salon-receptionist.json  # importable, secret-free n8n 2.x workflow (POST + header auth)
 config/salon.example.json        # fictional demo salon: services, hours, prices, handover
 config/vapi-assistant.example.md # assistant system prompt (service mapping, phone normalization)
-config/vapi-tools.*.example.json # Vapi function-tool definitions for both tools
-app/                             # FastAPI booking-policy sidecar (validation, idempotency, Vapi envelope)
-frontend/                        # React + Vite booking admin (sidecar UI)
-tests/                           # pytest suite for the sidecar: policy, envelope, API
-compose.yaml                     # PostgreSQL 17 + n8n 2.44.4, localhost-only by default
-INSTALL.md                       # full local setup: Docker, Python sidecar, tunneling for Vapi
+config/vapi-tools.*.example.json # Vapi function-tool definitions for both Vapi tools
+compose.yaml                     # n8n 2.44.4 in Docker, localhost-only by default
+INSTALL.md                       # full local setup: Docker, credentials, tunneling for Vapi
 ```
 
-The n8n workflow is self-contained (validation + Google Calendar over raw `events.list` / `events.create`), so the FastAPI sidecar is optional for the Stage 1 demo; it carries the Stage 2 direction: durable idempotency and a concurrency-safe reservation strategy staged in `app/`.
+Stage 1 keeps everything deterministic and stateless at the webhook: no database, no sidecar service — Google Calendar is the only booking system of record. Stage 2 will add durable idempotency and a concurrency-safe slot reservation (the known race-window fix).
 
 ## Quick start
 

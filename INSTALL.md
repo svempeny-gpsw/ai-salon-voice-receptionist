@@ -1,11 +1,6 @@
 # Installation and local setup
 
-This project is a demo AI salon receptionist using Vapi, self-hosted n8n, Google Calendar,
-and a FastAPI booking-policy sidecar backed by PostgreSQL. The sidecar mirrors the
-engineering approach of the companion
-[AI Complaint Orchestrator](https://github.com/svempeny-gpsw/ai-complaint-orchestrator):
-deterministic validation before actions, idempotency, failure isolation, tests, and
-secret-free workflow exports.
+This project is a demo AI salon receptionist using Vapi, self-hosted n8n, and Google Calendar. There is no Python application, no database, and no additional services: the n8n workflow is the entire backend, and Google Calendar is the booking system of record.
 
 ## Required local software
 
@@ -14,20 +9,9 @@ secret-free workflow exports.
   docker --version
   docker compose version
   ```
-- **Python 3.11 or newer** for the FastAPI sidecar (the system Python 3.9 on this Mac
-  cannot evaluate the `X | Y` type syntax used by the app). Verify with:
-  ```sh
-  python3.12 --version  # or python3.11
-  ```
 - **A web browser** to open the n8n editor at <http://localhost:5678>.
 
-Compose runs **PostgreSQL 17** (`salon-postgres`, healthy before n8n starts) and
-**n8n `2.44.4`** in Docker. n8n data and credentials live in the persistent `n8n_data`
-volume; booking records live in `salon_postgres_data`. Both services bind to
-`127.0.0.1` only. Timezone for this demo: `Australia/Melbourne` (machine/n8n);
-salon policy timezone comes from `config/salon.example.json`.
-
-## Start local infrastructure
+## Start and stop local n8n
 
 From the repository root (the directory containing `compose.yaml`):
 
@@ -36,122 +20,49 @@ docker compose up -d
 docker compose ps
 ```
 
-Open <http://localhost:5678> and finish the local n8n owner setup. Use a strong, unique password. To stop without deleting data:
+Compose runs **n8n `2.44.4`** with its data and encrypted credentials in the persistent `n8n_data` Docker volume. The editor is bound to `127.0.0.1:5678`, so it is only reachable on this Mac. Set the machine/workflow timezone to your demo salon's timezone (`GENERIC_TIMEZONE` in `compose.yaml`; the salon policy itself is in [`config/salon.example.json`](config/salon.example.json)).
+
+Finish the local n8n owner setup with a strong, unique password. To stop n8n without deleting its data:
 
 ```sh
 docker compose stop
 ```
 
-Do not use `docker compose down -v`: removing the volumes permanently deletes local
-n8n workflows/credentials and booking records.
+Do not use `docker compose down -v`: removing the `n8n_data` volume permanently deletes the local n8n workflows and credentials.
 
-## Python package list
+## Import the workflow
 
-[`requirements.txt`](requirements.txt) matches the companion repository's stack:
-`boto3`, `fastapi`, `uvicorn[standard]`, `pydantic`, `pydantic-settings`, `sqlalchemy`,
-`psycopg[binary]`, `pytest`, `httpx`. (`boto3` is unused by the salon sidecar today
-and kept for stack parity.)
+1. In n8n, import [`n8n/workflows/salon-receptionist.json`](n8n/workflows/salon-receptionist.json).
+2. Create two credentials in n8n and select them on the corresponding nodes:
+   - **Google Calendar OAuth2** credential (authorize only the demo account), used by the Google Calendar nodes.
+   - **Header Auth** credential (e.g. header `X-Vapi-Secret`), used by the Webhook node.
+3. Replace `REPLACE_WITH_TEST_CALENDAR_ID` (Webhook URL aside, the only placeholder left in the export) with your dedicated demo/test calendar ID. Create a calendar specifically for this demo — never connect a real salon calendar to initial testing.
+4. Test with the webhook's Test URL while *Listen for Test Event* is active, then publish/activate the workflow so the production webhook URL is live.
 
-```sh
-python3.12 -m venv .venv
-source .venv/bin/activate
-python -m pip install -r requirements.txt
-```
+## Make n8n reachable by Vapi (tunnel)
 
-## Configure the sidecar
-
-Copy the example env file and edit values locally (never commit `.env`):
-
-```sh
-cp .env.example .env
-```
-
-`DATABASE_URL` defaults to the Compose PostgreSQL instance;
-`SALON_CONFIG_PATH` points at `config/salon.example.json`;
-`N8N_WEBHOOK_URL` is the local n8n webhook for `salon-booking`.
-
-## Run the FastAPI sidecar
-
-```sh
-source .venv/bin/activate
-python -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
-```
-
-Health check: `curl http://127.0.0.1:8000/health` → `{"status":"ok"}`.
-Interactive docs: <http://127.0.0.1:8000/docs>.
-
-Endpoints (deterministic policy; the sidecar never calls Google Calendar directly):
-
-- `POST /bookings/check` — validate service/time against salon policy.
-- `POST /bookings` — validate and persist a `pending` booking request.
-  Supports `X-Idempotency-Key` (or `toolCallId`) for safe Vapi retries.
-- `GET /bookings/{id}` — read a booking request.
-- `POST /bookings/{id}/confirm` — record the Calendar event id (server-side only).
-- `POST /bookings/{id}/fail` — record a booking failure without claiming success.
-
-## Start the React frontend
-
-In another terminal (requires Node.js and npm):
-
-```sh
-cd frontend
-npm install
-npm run dev
-```
-
-The demo UI is normally available at <http://localhost:5173>. It talks to the
-sidecar at `http://127.0.0.1:8000` for availability checks, pending booking
-creation, and demo confirmation. It never calls Vapi, n8n, or Google Calendar.
-Lint with `npm run lint` and build with `npm run build` from `frontend/`.
-
-## Run the tests
-
-```sh
-source .venv/bin/activate
-python -m pytest tests/ -v
-```
-
-Tests use an isolated in-memory SQLite database and never touch the developer
-PostgreSQL or require a `.env`. They cover policy validation, the check/create/
-confirm flow, idempotent replay, invalid-request rejection, and the Vapi response
-envelope (one entry per `toolCallId`, JSON-encoded `result` string).
-
-## Wire n8n to the sidecar
-
-Import [`n8n/workflows/salon-receptionist.json`](n8n/workflows/salon-receptionist.json)
-in n8n. Because n8n runs in Docker while the API runs on the host, the workflow calls
-the sidecar at `http://host.docker.internal:8000`, while the API (if it ever calls
-n8n) uses `http://localhost:5678`. Do not commit n8n credentials or secrets in the
-workflow export.
-
-## Optional: temporary HTTPS tunnel for Vapi testing
-
-Vapi cannot call a `localhost` webhook. For short-lived development tests, install
-Cloudflare's `cloudflared` CLI on macOS with Homebrew:
+Vapi cannot call a `localhost` webhook. For short-lived development tests, install Cloudflare's `cloudflared` CLI on macOS with Homebrew and start a Quick Tunnel:
 
 ```sh
 brew install cloudflared
-```
-
-With n8n running, start a Quick Tunnel in a separate Terminal window:
-
-```sh
 cloudflared tunnel --url http://127.0.0.1:5678
 ```
 
-Use the temporary `https://…trycloudflare.com` hostname it prints as the public host
-for an n8n **test** webhook. Keep the Terminal process open while testing and stop it
-with Ctrl-C afterward. The hostname changes on restart; update the Vapi tool URL
-accordingly. Quick Tunnels need no Cloudflare account, have no uptime guarantee,
-expose the service to anyone with the URL, and are for testing only. Keep n8n owner
-login enabled, use dummy test data, and configure authentication on sensitive
-workflows. See [Cloudflare Quick Tunnels](https://developers.cloudflare.com/tunnel/get-started/quick-tunnels/).
+Use the temporary `https://…trycloudflare.com` hostname it prints as the n8n webhook host in your Vapi tools, and set `N8N_WEBHOOK_URL` in `compose.yaml` to that host when running behind it. Quick Tunnels need no Cloudflare account, but the hostname changes on restart, they have no uptime guarantee, and anyone with the URL can reach the exposed service — test with dummy data, keep authentication enabled on the webhook, and use a deliberately configured named tunnel with proper access controls for anything beyond throwaway testing. See [Cloudflare Quick Tunnels](https://developers.cloudflare.com/tunnel/get-started/quick-tunnels/) and [n8n webhook URL configuration](https://docs.n8n.io/deploy/host-n8n/configure-n8n/basic-configuration/configuration-examples/configure-webhook-urls-with-reverse-proxy/).
 
 ## External services and accounts
 
-Configured in their respective web consoles; credentials do not belong in this repository:
+These are configured in their respective web consoles; their credentials do not belong in this repository:
 
-- **Vapi** development/testing account for the voice assistant and custom function tools.
-- **Google account** with a separate test calendar for the demo, plus Calendar API/OAuth
-  configuration if using self-managed Google OAuth.
-- **n8n owner account**, created locally in the n8n setup screen.
+- **Vapi** development/testing account for the voice assistant and the two function tools (definitions in [`config/`](config/)).
+- **Google account** with a separate test calendar, plus Google Calendar API/OAuth configuration if using self-managed Google OAuth (if the consent screen is in Testing mode, add your Google account as a test user).
+- **n8n owner account**, created locally during first launch.
+
+## Where the pieces come from
+
+- Vapi function-tool schemas: [`config/vapi-tools.check_availability.example.json`](config/vapi-tools.check_availability.example.json) and [`config/vapi-tools.book_appointment.example.json`](config/vapi-tools.book_appointment.example.json); attach a custom credential with the same secret header on both tools.
+- Assistant instructions: [`config/vapi-assistant.example.md`](config/vapi-assistant.example.md).
+- Salon policy: [`config/salon.example.json`](config/salon.example.json) (fictional demo data).
+- Validate resulting behavior against the acceptance cases in [`specs/booking-contract.md`](specs/booking-contract.md).
+
+See the main [README](README.md) for the architecture, verified results, and known limitations. No Google/Vapi secrets are stored in this repository.

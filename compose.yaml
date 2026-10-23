@@ -1,21 +1,5 @@
 services:
-  postgres:
-    image: postgres:17
-    container_name: salon-postgres
-    environment:
-      POSTGRES_DB: salon
-      POSTGRES_USER: salon_user
-      POSTGRES_PASSWORD: salon_password
-    ports:
-      - "127.0.0.1:5432:5432"
-    volumes:
-      - salon_postgres_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U salon_user -d salon"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-
+  # Hostname your tunnel reaches n8n on: set N8N_WEBHOOK_URL to that host (see INSTALL.md).
   n8n:
     image: docker.n8n.io/n8nio/n8n:2.44.4
     restart: unless-stopped
@@ -29,11 +13,5 @@ services:
       N8N_PROXY_HOPS: "1"
     volumes:
       - n8n_data:/home/node/.n8n
-# Set N8N_WEBHOOK_URL to your public tunnel host when testing with Vapi (see INSTALL.md).
-    depends_on:
-      postgres:
-        condition: service_healthy
-
 volumes:
-  salon_postgres_data:
   n8n_data:
